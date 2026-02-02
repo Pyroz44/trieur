@@ -3,7 +3,6 @@
 #include <ESP32Encoder.h>
 
 // --- Configuration Matérielle ---
-// Basé sur tes tests validés (DIR=26, ON=25)
 #define PIN_POT     33
 #define PIN_BTN1    2
 #define PIN_BTN2    12
