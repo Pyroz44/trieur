@@ -9,7 +9,7 @@
 #define PIN_ON      26
 #define PIN_PWM     27
 
-// Paramètres PWM corrigés
+// Paramètres PWM
 const int pwmFreq = 25000;
 const int pwmChannel = 0;
 // 11 bits (Max 2047)
