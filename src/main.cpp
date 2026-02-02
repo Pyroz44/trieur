@@ -1,56 +1,69 @@
 #include <Arduino.h>
 #include "rgb_lcd.h"
 
-// --- Définition des broches
+// Mapping des E/S
 #define PIN_POT     33
-#define PIN_BTN1    2   // BP1
-#define PIN_BTN2    12  // BP2
+#define PIN_BTN1    2
+#define PIN_BTN2    12
+#define PIN_DIR     25
+#define PIN_ON      26
+#define PIN_PWM     27
+
+// Paramètres PWM
+const int pwmFreq = 25000;
+const int pwmChannel = 0;
+const int pwmResolution = 12;
+// Calcul résolution : 80MHz / 25kHz = 3200 pas max
 
 rgb_lcd lcd;
 
 void setup() {
-  // 1. Initialisation Série
   Serial.begin(115200);
 
-  // 2. Initialisation LCD
+  // Init LCD
   Wire1.setPins(15, 5);
   lcd.begin(16, 2, LCD_5x8DOTS, Wire1);
-  lcd.setRGB(0, 0, 200); // Fond bleu
-  lcd.print("Test IHM...");
+  lcd.setRGB(255, 255, 255);
+  lcd.print("Test Moteur");
 
-  // 3. Configuration des broches
-  // Si le bouton n'est pas appuyé, on lit 1 (HIGH).
-  // Si on appuie, on lit 0 (LOW).
+  // Configuration IHM
   pinMode(PIN_BTN1, INPUT_PULLUP);
   pinMode(PIN_BTN2, INPUT_PULLUP);
-  
+
+  // Configuration Moteur
+  pinMode(PIN_DIR, OUTPUT);
+  pinMode(PIN_ON, OUTPUT);
+
+  // Configuration LEDC (PWM)
+  ledcSetup(pwmChannel, pwmFreq, pwmResolution);
+  ledcAttachPin(PIN_PWM, pwmChannel);
+
+  // Conditions initiales
+  digitalWrite(PIN_ON, HIGH); // Driver actif
+  digitalWrite(PIN_DIR, LOW);
+  ledcWrite(pwmChannel, 0);   // Vitesse nulle
 }
 
 void loop() {
-  // --- Lecture des capteurs ---
-  int valBtn1 = digitalRead(PIN_BTN1);
-  int valBtn2 = digitalRead(PIN_BTN2);
-  int valPot  = analogRead(PIN_POT); // Valeur entre 0 et 4095
+  // Lecture consigne vitesse
+  int rawPot = analogRead(PIN_POT);
+  // Mise à l'échelle (0-4095 -> 0-3200)
+  int dutyCycle = map(rawPot, 0, 4095, 0, 3200);
 
-  // --- Affichage Terminal (pour débugger) ---
-  Serial.print("BP1: ");
-  Serial.print(valBtn1);
-  Serial.print(" | BP2: ");
-  Serial.print(valBtn2);
-  Serial.print(" | Pot: ");
-  Serial.println(valPot);
+  // Gestion sens de rotation
+  if (digitalRead(PIN_BTN1) == LOW) {
+    digitalWrite(PIN_DIR, LOW);
+    lcd.setCursor(0, 1);
+    lcd.print("Sens: Horaire   ");
+  } 
+  else if (digitalRead(PIN_BTN2) == LOW) {
+    digitalWrite(PIN_DIR, HIGH);
+    lcd.setCursor(0, 1);
+    lcd.print("Sens: Anti-Hor  ");
+  }
 
-  // --- Affichage LCD ---
-  lcd.setCursor(0, 0);
-  lcd.print("B1:"); 
-  lcd.print(valBtn1); // Affiche 0 ou 1
-  lcd.print(" B2:"); 
-  lcd.print(valBtn2); // Affiche 0 ou 1
+  // Application de la commande
+  ledcWrite(pwmChannel, dutyCycle);
   
-  lcd.setCursor(0, 1);
-  lcd.print("Pot: ");
-  lcd.print(valPot);
-  lcd.print("    "); // Espaces pour effacer les vieux chiffres
-
-  delay(200); // pause pour ne pas saturer l'écran
+  delay(50);
 }
