@@ -3,10 +3,8 @@
 
 // --- Définition des broches
 #define PIN_POT     33
-#define PIN_BTN1    2   // BP1 (Probablement le Bleu ou Jaune)
+#define PIN_BTN1    2   // BP1
 #define PIN_BTN2    12  // BP2
-// Note: Le schéma indique souvent que les boutons ferment vers la masse (GND).
-// On utilise donc INPUT_PULLUP pour avoir un "1" au repos et "0" quand appuyé.
 
 rgb_lcd lcd;
 
