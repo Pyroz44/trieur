@@ -2,104 +2,105 @@
 #include "rgb_lcd.h"
 #include <ESP32Encoder.h>
 
-// --- Configuration Matérielle ---
+// --- Config ---
 #define PIN_POT     33
-#define PIN_BTN1    2
-#define PIN_BTN2    12
+#define PIN_BTN1    2   
+#define PIN_BTN2    12  
 #define PIN_DIR     26  
 #define PIN_ON      25  
 #define PIN_PWM     27
 #define PIN_ENC_A   23
 #define PIN_ENC_B   19
 
-// --- Paramètres Système ---
-const int ENC_RES = 413;        // Résolution mesurée (points par tour)
-const int PWM_CHAN = 0;
-const int PWM_RES = 11;         // 11 bits
-const int PWM_MAX = 2047;       // Valeur max PWM
+const int ENC_RES = 413;     
+const int POS_BAC_1 = 0;     
+const int POS_BAC_2 = 200;   
 
-// --- Paramètres Asservissement ---
-// Kp augmenté pour vaincre les frottements (Fluidité)
-float Kp = 25.0; 
-// Seuil minimal pour envoyer du jus au moteur (Anti-grésillement)
-int minPWM = 80; 
+// --- Nouveaux Réglages ---
+float Kp = 7.0;             // Avant: 15.0 -> Beaucoup plus doux
+float Ki = 0.05;            // Avant: 0.8 -> Accumulation très lente
+int maxSpeed = 1500;        // Vitesse max réduite
+
+// Variables
+int targetPos = 0; 
+float errorSum = 0;
 
 rgb_lcd lcd;
 ESP32Encoder encoder;
 
 void setup() {
   Serial.begin(115200);
-  
-  // LCD
   Wire1.setPins(15, 5);
   lcd.begin(16, 2, LCD_5x8DOTS, Wire1);
-  lcd.setRGB(50, 50, 200);
-  lcd.print("Mode Servo P+");
+  lcd.setRGB(0, 50, 0); // Vert sombre
+  lcd.print("Mode Stable");
 
-  // I/O
+  pinMode(PIN_BTN1, INPUT_PULLUP);
+  pinMode(PIN_BTN2, INPUT_PULLUP);
   pinMode(PIN_DIR, OUTPUT);
   pinMode(PIN_ON, OUTPUT);
   
-  // PWM
-  ledcSetup(PWM_CHAN, 25000, PWM_RES);
-  ledcAttachPin(PIN_PWM, PWM_CHAN);
-
-  // Moteur ON
+  ledcSetup(0, 25000, 11);
+  ledcAttachPin(PIN_PWM, 0);
   digitalWrite(PIN_ON, HIGH);
 
-  // Codeur
   ESP32Encoder::useInternalWeakPullResistors = UP;
   encoder.attachHalfQuad(PIN_ENC_A, PIN_ENC_B);
-  encoder.setCount(0); // Position 0 au démarrage
+  encoder.setCount(0); 
 }
 
 void loop() {
-  // 1. Consigne (Potentiomètre -> Angle en points codeur)
-  int valPot = analogRead(PIN_POT);
-  // On borne la consigne entre 0 et 413 (1 tour)
-  int targetPos = map(valPot, 0, 4095, 0, ENC_RES);
+  // --- 1. Sélecteur ---
+  int oldTarget = targetPos;
+  
+  if (digitalRead(PIN_BTN1) == LOW) targetPos = POS_BAC_1; 
+  else if (digitalRead(PIN_BTN2) == LOW) targetPos = POS_BAC_2; 
 
-  // 2. Mesure (Position réelle)
+  if (oldTarget != targetPos) {
+    errorSum = 0; // Reset mémoire si changement
+  }
+
+  // --- 2. Asservissement PI ---
   long currentPos = encoder.getCount();
-
-  // 3. Erreur
   int error = targetPos - currentPos;
+  
+  // --- Anti-Tremblement (Nouveau) ---
+  // Si on est très proche de la cible (à 2 points près), on arrête tout.
+  if (abs(error) <= 2) {
+    errorSum = 0;
+    error = 0; // On force l'erreur à 0 pour couper le moteur
+  }
+  else {
+    errorSum += error;
+  }
+  
+  // Anti-tremblement
+  if (errorSum > 2000) errorSum = 2000;
+  if (errorSum < -2000) errorSum = -2000;
 
-  // 4. Commande (P)
-  int controlSignal = error * Kp;
+  // Calcul commande
+  float controlSignal = (error * Kp) + (errorSum * Ki);
 
-  // 5. Pilotage Moteur
-  // Gestion du sens
+  // Gestion Sens
   if (controlSignal > 0) {
     digitalWrite(PIN_DIR, LOW);
   } else {
     digitalWrite(PIN_DIR, HIGH);
-    controlSignal = -controlSignal; // Valeur absolue pour le PWM
+    controlSignal = -controlSignal;
   }
 
-  // Saturation (Max PWM)
-  if (controlSignal > PWM_MAX) controlSignal = PWM_MAX;
+  if (controlSignal > maxSpeed) controlSignal = maxSpeed;
   
-  // Zone Morte (Pour éviter la surchauffe à l'arrêt, mais assez bas pour être précis)
-  if (controlSignal < minPWM) controlSignal = 0;
-
   // Envoi
-  ledcWrite(PWM_CHAN, controlSignal);
+  ledcWrite(0, (int)controlSignal);
 
-  // --- Affichage (Rafraîchissement limité) ---
+  // --- 3. Affichage ---
   static long lastTime = 0;
   if (millis() - lastTime > 150) {
     lastTime = millis();
-    
-    lcd.setCursor(0, 0);
-    lcd.print("C:"); lcd.print(targetPos);
-    lcd.print(" M:"); lcd.print(currentPos); 
-    lcd.print("   "); // Effacement fin de ligne
-
     lcd.setCursor(0, 1);
-    // Affiche l'erreur pour voir si l'asservissement est précis
-    lcd.print("Err:"); lcd.print(error);
-    lcd.print(" PWM:"); lcd.print(controlSignal);
-    lcd.print("  ");
+    lcd.print("T:"); lcd.print(targetPos);
+    lcd.print(" C:"); lcd.print(currentPos);
+    lcd.print("   ");
   }
 }
